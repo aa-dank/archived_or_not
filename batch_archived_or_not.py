@@ -1,8 +1,11 @@
 import json
 import os
+import random
 import re
 import requests
 import sys
+import PySimpleGUI as sg
+from collections import defaultdict
 from datetime import datetime
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
@@ -12,6 +15,75 @@ VERSION = "1.0.2"
 URL_TEMPLATE =r"https://{}/api/archived_or_not?user=constdoc@ucsc.edu&password=1156high"
 #ADDRESS = r"localhost:5000" #for testing
 ADDRESS = r"ppdo-dev-app-1.ucsc.edu"
+
+class GuiHandler:
+    """
+        This class is used to create and launch the various GUI windows used by the script.
+    """
+
+    def __init__(self, app_version: str):
+        self.gui_theme = random.choice(["DarkTeal6", "Green", "LightBrown11", "LightPurple", "SandyBeach", "DarkGreen4",
+                                        "BluePurple", "Reddit", "DarkBrown5", "DarkBlue8", "LightGreen6", "LightBlue7",
+                                        "DarkGreen2", "Kayak", "LightBrown3", "LightBrown1", "LightTeal", "Tan",
+                                        "TealMono", "LightBrown4", "LightBrown3", "LightBrown2", "DarkPurple4",
+                                        "DarkPurple", "DarkGreen5", "Dark Brown3", "DarkAmber", "DarkGrey6",
+                                        "DarkGrey2", "DarkTeal1", "LightGrey6", "DarkBrown6"])
+        self.window_close_button_event = "-WINDOW CLOSE ATTEMPTED-"
+        self.app_version = app_version
+
+    def _main_form_layout(self):
+        """
+        Create the layout for the main form.
+        :return: The layout for the main form.
+        """
+        layout = [
+            [sg.Text("Version: " + self.app_version)],
+            [sg.Text("Path to directory of files to check: "), sg.InputText(key='input_files_location'), sg.FolderBrowse(key='input_files_location_browse')],
+            [sg.Checkbox("Should file checking be recursive through nested sub-directories?", key='recursive')],
+            [sg.Checkbox("Only show files that are not found on the server?", key='only_missing_files')],
+            [sg.Combo(values=['json', 'excel', 'None'], default_value='None', key='output_type')],
+            [sg.Submit(), sg.Cancel()]
+        ]
+        return layout
+
+    def make_window(self, window_name: str, window_layout: list, figure=None):
+        """
+
+        :param window_name:
+        :param window_layout:
+        :param figure: matplotlib figure to be included in layout, requires sg.Canvas(key='-CANVAS-') element in layout
+        :return:
+        """
+
+        sg.theme(self.gui_theme)
+
+        # launch gui
+        if figure:
+            window = sg.Window(window_name, layout=window_layout, finalize=True, enable_close_attempted_event=True)
+            fig_canvas_agg = self.draw_figure(window['-CANVAS-'].TKCanvas, figure)
+        else:
+            window = sg.Window(window_name, layout=window_layout, finalize=True, enable_close_attempted_event=True)
+        window.bring_to_front()
+        event, values = window.read()
+        values["Button Event"] = event
+        window.close()
+        return defaultdict(None, values)
+
+
+class TestGuiHandler:
+
+
+    @staticmethod
+    def test_main_form():
+        gui_handler = GuiHandler("1.0.0")
+        layout = gui_handler._main_form_layout()
+        window = sg.Window("Test Window", layout=layout, finalize=True)
+        window.bring_to_front()
+        event, values = window.read()
+        values["Button Event"] = event
+        window.close()
+        return values
+    
 
 def split_path(path):
     """
@@ -190,4 +262,10 @@ def main():
     input("Press Enter to exit...")
 
 if __name__ == '__main__':
+    TestGuiHandler.test_main_form()
     main()
+
+
+# Features to add:
+#   - Add ability choose between json, excel, or None output
+#   - GUI?
