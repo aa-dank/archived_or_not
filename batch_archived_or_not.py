@@ -5,6 +5,7 @@ import re
 import requests
 import sys
 import PySimpleGUI as sg
+import pandas as pd
 from collections import defaultdict
 from datetime import datetime
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
@@ -207,6 +208,8 @@ def main():
     only_missing_files = True if input("Only show files that are not found on the server? (y/n): ").lower().startswith('y') else False
     # if the user is not only interested in missing files, ask if they want to create a json file of the results
     create_json = True if (not only_missing_files and input("Create json file of results? (y/n): ").lower().startswith('y')) else False
+    # regardless of if the user wanted a json file of results, ask if they want an excel file
+    create_excel = True if (not only_missing_files and input("Create excel file of results? (y/n): ").lower().startswith('y')) else False
 
     
     results= {} 
@@ -256,7 +259,14 @@ def main():
         with open(results_filepath, 'w') as f:
             json.dump(results, f, indent=4)
         # print the results filepath in purple if the output is being piped to console
-        print(add_terminal_text_color(text=f"\nResults file saved to: {results_filepath}\n", color='purple'))
+        print(add_terminal_text_color(text=f"\nResults json file saved to: {results_filepath}\n", color='purple'))
+
+    if create_excel:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{timestamp}.xlsx')
+        df = pd.DataFrame(data=results)
+        df.to_excel(results_filepath)
+        print(add_terminal_text_color(text=f"\nResults excel file saved to: {results_filepath}\n", color='purple'))
 
     # wait for user input to exit
     input("Press Enter to exit...")
