@@ -39,10 +39,10 @@ class GuiHandler:
         """
         layout = [
             [sg.Text("Version: " + self.app_version)],
-            [sg.Text("Path to directory of files to check: "), sg.InputText(key='input_files_location'), sg.FolderBrowse(key='input_files_location_browse')],
+            [sg.Text("Path to directory of files to check: "), sg.InputText(key='input_files_location'), sg.FolderBrowse(key='input_files_location')],
             [sg.Checkbox("Should file checking be recursive through nested sub-directories?", key='recursive')],
             [sg.Checkbox("Only show files that are not found on the server?", key='only_missing_files')],
-            [sg.Combo(values=['json', 'excel', 'None'], default_value='None', key='output_type')],
+            [sg.Combo(values=['json', 'excel', 'window'], default_value='window', key='output_type')],
             [sg.Submit(), sg.Cancel()]
         ]
         return layout
@@ -59,11 +59,7 @@ class GuiHandler:
         sg.theme(self.gui_theme)
 
         # launch gui
-        if figure:
-            window = sg.Window(window_name, layout=window_layout, finalize=True, enable_close_attempted_event=True)
-            fig_canvas_agg = self.draw_figure(window['-CANVAS-'].TKCanvas, figure)
-        else:
-            window = sg.Window(window_name, layout=window_layout, finalize=True, enable_close_attempted_event=True)
+        window = sg.Window(window_name, layout=window_layout, finalize=True, enable_close_attempted_event=True)
         window.bring_to_front()
         event, values = window.read()
         values["Button Event"] = event
@@ -76,12 +72,92 @@ class TestGuiHandler:
 
     @staticmethod
     def test_main_form():
+        # Disable SSL warnings
+        requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
+
+        # Enable ANSI escape sequences for color output
+        os.system('')
+
         gui_handler = GuiHandler("1.0.0")
         layout = gui_handler._main_form_layout()
         window = sg.Window("Test Window", layout=layout, finalize=True)
         window.bring_to_front()
-        event, values = window.read()
-        values["Button Event"] = event
+
+        while True:
+            event, values = window.read()
+            if event == sg.WIN_CLOSED or event == 'Cancel':
+                break
+
+            # recursive button event
+            if event == 'recursive':
+                recursive = True
+            else:
+                recursive = False
+
+            # only_missing_files button event
+            if event == 'only_missing_files':
+                only_missing_files = True
+            else:
+                only_missing_files = False
+
+            # submit button event, hosts main program
+            if event == 'Submit':
+                files_location = values['input_files_location']
+                if files_location == "":
+                    sg.popup_error("Must input filepath")
+                    break
+                results = {}
+                for root, _, files in os.walk(files_location):
+
+                    for file in files:
+                        filepath = os.path.join(root, file)
+                        request_url = URL_TEMPLATE.format(ADDRESS)
+                        with open(filepath, 'rb') as f:
+                            files = {'file': f}
+                            response = requests.post(request_url, files=files, verify=False)
+                            if only_missing_files:
+                                continue
+                            file_locations = json.loads(response.text)
+                        results[filepath] = file_locations
+
+                    if root == files_location and not recursive:
+                        break
+
+                # export output based on user options
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                # export json
+                if values['output_type'] == 'json':
+                    results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{timestamp}.json')
+                    with open(results_filepath, 'w') as f:
+                        json.dump(results, f, indent=4)
+                    window.close()
+                    sg.popup_ok(results_filepath, title="Results excel file saved to:")
+
+                # export excel
+                elif values['output_type'] == 'excel':
+                    results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{timestamp}.xlsx')
+                    df = pd.DataFrame(data=results)
+                    df.to_excel(results_filepath)
+                    window.close()
+                    sg.popup_ok(results_filepath, title="Results excel file saved to:")
+
+                window.close()
+                # output to window (default)
+                layout = [[sg.Button("Get Results")],
+                          [sg.Multiline(size=(100, 30), font=('Courier', 10), key="line", autoscroll=True,
+                                        reroute_stdout=True, reroute_stderr=True, )]]
+                window = sg.Window("File Locations", layout, finalize=True)
+                while True:
+                    event, values = window.read()
+                    if event == sg.WIN_CLOSED:
+                        break
+                    if event == "Get Results":
+                        for key, vals in results.items():
+                            print(f"Locations for {key}\n")
+                            for val in vals:
+                                print("   ", val)
+                            print()
+
         window.close()
         return values
     
@@ -95,7 +171,7 @@ def split_path(path):
 
     def detect_filepath_type(filepath):
         """
-        Detects the cooresponding OS of the filepath. (Windows, Linux, or Unknown)
+        Detects the corresponding OS of the filepath. (Windows, Linux, or Unknown)
         :param filepath: The filepath to detect.
         :return: The OS of the filepath. (Windows, Linux, or Unknown)
         """
@@ -273,7 +349,7 @@ def main():
 
 if __name__ == '__main__':
     TestGuiHandler.test_main_form()
-    main()
+    #main()
 
 
 # Features to add:
