@@ -39,11 +39,13 @@ class GuiHandler:
         """
         layout = [
             [sg.Text("Version: " + self.app_version)],
+            [sg.Text("Input a valid file path in box below. Manually input the path or select Browse to locate the folder.")],
             [sg.Text("Path to directory of files to check: "), sg.InputText(key='input_files_location'), sg.FolderBrowse(key='input_files_location')],
             [sg.Checkbox("Should file checking be recursive through nested sub-directories?", key='recursive')],
-            [sg.Checkbox("Only show files that are not found on the server?", key='only_missing_files')],
-            [sg.Combo(values=['json', 'excel', 'window'], default_value='window', key='output_type')],
-            [sg.Submit(), sg.Cancel()]
+            [sg.Checkbox("Only show files that are not found on the server?", key='only_missing')],
+            [sg.Text("Note: If you requested only the missing files, do not select any output other than 'window'.")],
+            [sg.Text("Output Type: "), sg.Combo(values=['json', 'excel', 'window'], default_value='window', key='output_type')],
+            [sg.Submit(), sg.Cancel(), sg.ProgressBar(100, orientation='h', size=(50, 15), bar_color=('green', 'white'), key='progressbar')]
         ]
         return layout
 
@@ -72,99 +74,19 @@ class TestGuiHandler:
 
     @staticmethod
     def test_main_form():
-        # Disable SSL warnings
-        requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-
-        # Enable ANSI escape sequences for color output
-        os.system('')
-
         gui_handler = GuiHandler("1.0.0")
         layout = gui_handler._main_form_layout()
         window = sg.Window("Test Window", layout=layout, finalize=True)
         window.bring_to_front()
-
-        while True:
-            event, values = window.read()
-            if event == sg.WIN_CLOSED or event == 'Cancel':
-                break
-
-            # recursive button event
-            if event == 'recursive':
-                recursive = True
-            else:
-                recursive = False
-
-            # only_missing_files button event
-            if event == 'only_missing_files':
-                only_missing_files = True
-            else:
-                only_missing_files = False
-
-            # submit button event, hosts main program
-            if event == 'Submit':
-                files_location = values['input_files_location']
-                if files_location == "":
-                    sg.popup_error("Must input filepath")
-                    break
-                results = {}
-                for root, _, files in os.walk(files_location):
-
-                    for file in files:
-                        filepath = os.path.join(root, file)
-                        request_url = URL_TEMPLATE.format(ADDRESS)
-                        with open(filepath, 'rb') as f:
-                            files = {'file': f}
-                            response = requests.post(request_url, files=files, verify=False)
-                            if only_missing_files:
-                                continue
-                            file_locations = json.loads(response.text)
-                        results[filepath] = file_locations
-
-                    if root == files_location and not recursive:
-                        break
-
-                # export output based on user options
-                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                # export json
-                if values['output_type'] == 'json':
-                    results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{timestamp}.json')
-                    with open(results_filepath, 'w') as f:
-                        json.dump(results, f, indent=4)
-                    window.close()
-                    sg.popup_ok(results_filepath, title="Results excel file saved to:")
-
-                # export excel
-                elif values['output_type'] == 'excel':
-                    results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{timestamp}.xlsx')
-                    df = pd.DataFrame(data=results)
-                    df.to_excel(results_filepath)
-                    window.close()
-                    sg.popup_ok(results_filepath, title="Results excel file saved to:")
-
-                window.close()
-                # output to window (default)
-                layout = [[sg.Button("Get Results")],
-                          [sg.Multiline(size=(100, 30), font=('Courier', 10), key="line", autoscroll=True,
-                                        reroute_stdout=True, reroute_stderr=True, )]]
-                window = sg.Window("File Locations", layout, finalize=True)
-                while True:
-                    event, values = window.read()
-                    if event == sg.WIN_CLOSED:
-                        break
-                    if event == "Get Results":
-                        for key, vals in results.items():
-                            print(f"Locations for {key}\n")
-                            for val in vals:
-                                print("   ", val)
-                            print()
-
+        event, values = window.read()
+        values["Button Event"] = event
         window.close()
         return values
     
 
 def split_path(path):
     """
-    Split a path into a list of directories/files/mount points. It is built to accomodate Splitting both Windows and Linux paths
+    Split a path into a list of directories/files/mount points. It is built to accommodate Splitting both Windows and Linux paths
     on linux systems. (It will not necessarily work to process linux paths on Windows systems)
     :param path: The path to split.
     """
@@ -276,80 +198,133 @@ def main():
 
     # Enable ANSI escape sequences for color output
     os.system('')
-    
-    #retrieve user values
-    print(f"Version: {add_terminal_text_color(VERSION, 'yellow')}")
-    files_location = input("Enter path to directory of files to check: ")
-    recursive = True if input("Should file checking be recursive through nested sub-directories? (y/n): ").lower().startswith('y') else False
-    only_missing_files = True if input("Only show files that are not found on the server? (y/n): ").lower().startswith('y') else False
-    # if the user is not only interested in missing files, ask if they want to create a json file of the results
-    create_json = True if (not only_missing_files and input("Create json file of results? (y/n): ").lower().startswith('y')) else False
-    # regardless of if the user wanted a json file of results, ask if they want an excel file
-    create_excel = True if (not only_missing_files and input("Create excel file of results? (y/n): ").lower().startswith('y')) else False
 
-    
-    results= {} 
-    for root, _, files in os.walk(files_location):
-        
-        for file in files:
-            filepath = os.path.join(root, file)
-            path_relative_to_files_location = os.path.relpath(filepath, files_location)
-            request_url = URL_TEMPLATE.format(ADDRESS)
-            file_locations = []
-            with open(filepath, 'rb') as f:
-                files = {'file': f}
-                response = None
-                try:
-                    response = requests.post(request_url, files=files, verify=False)
-                    file_locations = []
-                    file_str = f"\nLocations for {path_relative_to_files_location}\n"
-                    if response.status_code == 404:
-                        print(add_terminal_text_color(text=file_str, color='green'))
-                        print('\tNone')
-                        
-                    else:
-                        if only_missing_files:
-                            continue
+    gui_handler = GuiHandler("1.0.0")
+    layout = gui_handler._main_form_layout()
+    window = sg.Window("Test Window", layout=layout, finalize=True)
+    progress_bar = window['progressbar']
+    window.bring_to_front()
 
-                        file_locations = json.loads(response.text)
-                        print(add_terminal_text_color(text=file_str, color='green'))
-                        for i, location in enumerate(file_locations):
-                            # if the output is being piped to console, alternate the color of the output
-                            if (i % 2 != 0):
-                                location = add_terminal_text_color(text=location, color='cyan')
-                            print(f"\t{location}")
-
-                except Exception as e:
-                    if response and response.status_code and response.status_code in [404, 400, 500, 405]:
-                        print(f"Request Error:\n{response.text}")
-                        break
-
-            results[filepath] = file_locations
-
-        if root == files_location and not recursive:
+    while True:
+        event, values = window.read()
+        only_missing_files = False
+        recursive = False
+        # close window event
+        if event == sg.WIN_CLOSED or event == 'Cancel':
             break
+        # recursive button event
+        if values['recursive']:
+            recursive = True
+        # only_missing_files button event
+        if values['only_missing']:
+            only_missing_files = True
+        # submit button event, hosts main program
+        if event == 'Submit':
+            pb_counter = 0
+            pb_max = 100
+            progress_bar.update_bar(pb_counter, pb_max)
+            files_location = values['input_files_location']
+            # proceed ONLY if path is provided
+            if files_location == "":
+                sg.popup_error("Must input filepath")
+                break
 
-    if create_json:
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{timestamp}.json')
-        with open(results_filepath, 'w') as f:
-            json.dump(results, f, indent=4)
-        # print the results filepath in purple if the output is being piped to console
-        print(add_terminal_text_color(text=f"\nResults json file saved to: {results_filepath}\n", color='purple'))
+            results = {}
+            # find total number of files (for the progress bar)
+            if recursive:
+                pb_max = sum(1 for _, _, fi in os.walk(files_location) for f in fi)
 
-    if create_excel:
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{timestamp}.xlsx')
-        df = pd.DataFrame(data=results)
-        df.to_excel(results_filepath)
-        print(add_terminal_text_color(text=f"\nResults excel file saved to: {results_filepath}\n", color='purple'))
+            for root, dirs, files in os.walk(files_location):
+                if not recursive:
+                    pb_max = len(files)
+                for file in files:
+                    pb_counter += 1
+                    progress_bar.update_bar(pb_counter, pb_max)
+                    filepath = os.path.join(root, file)
+                    request_url = URL_TEMPLATE.format(ADDRESS)
+                    with open(filepath, 'rb') as f:
+                        files = {'file': f}
+                        response = None
+                        try:
+                            response = requests.post(request_url, files=files, verify=False)
+                            file_locations = []
+                            if response.status_code == 404:
+                                file_locations = "None"
+                            else:
+                                if only_missing_files:
+                                    continue
+                                file_locations = json.loads(response.text)
+                        except Exception as e:
+                            if response and response.status_code and response.status_code in [404, 400, 500, 405]:
+                                sg.popup_error(f"Request Error:\n{response.text}")
+                                break
+                    results[filepath] = file_locations
+                if root == files_location and not recursive:
+                    break
 
-    # wait for user input to exit
-    input("Press Enter to exit...")
+            # export output based on user options
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            # export json
+            if values['output_type'] == 'json' and not only_missing_files:
+                results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{timestamp}.json')
+                with open(results_filepath, 'w') as f:
+                    json.dump(results, f, indent=4)
+                window.close()
+                sg.popup_ok(results_filepath, title="Results excel file saved to:")
+
+            # export excel
+            elif values['output_type'] == 'excel' and not only_missing_files:
+                results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{timestamp}.xlsx')
+                df = pd.DataFrame(data=results)
+                df.to_excel(results_filepath)
+                window.close()
+                sg.popup_ok(results_filepath, title="Results excel file saved to:")
+
+            window.close()
+
+            # format the output
+            out = []
+            if only_missing_files:
+                count = 0
+                for key, vals in results.items():
+                    if vals != "None":
+                        continue
+                    else:
+                        count += 1
+                        key = key.replace("/", "\\")
+                        out.append(f"Locations for {key}")
+                        out.append("  \\")
+                        out.append("   | None")
+                        out.append("  /")
+                if count == 0:
+                    out.append("All files were located on the server")
+            else:
+                for key, vals in results.items():
+                    key = key.replace("/", "\\")
+                    out.append(f"Locations for {key}")
+                    out.append("  \\")
+                    if vals != "None":
+                        for val in vals:
+                            val = val.replace("/", "\\")
+                            out.append(f"   | R:\\{val}")
+                    else:
+                        out.append("   | None")
+                    out.append("  /")
+
+            # output to window (default)
+            layout = [[sg.Multiline(default_text="\n".join(out), size=(130, 30), font=('Courier', 10), key="line",
+                                    autoscroll=True)]]
+            window = sg.Window("File Locations", layout, finalize=True)
+            while True:
+                event, values = window.read()
+                if event == sg.WIN_CLOSED:
+                    break
+
+    window.close()
 
 if __name__ == '__main__':
-    TestGuiHandler.test_main_form()
-    #main()
+    #TestGuiHandler.test_main_form()
+    main()
 
 
 # Features to add:
