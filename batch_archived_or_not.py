@@ -35,36 +35,34 @@ class GuiHandler:
         Create the layout for the main form.
         :return: The layout for the main form.
         """
+        sg.theme('Dark2')
+
         layout = [
             [sg.Text("Version: " + self.app_version)],
             [sg.Text("Input a valid file path in box below. Manually input the path or select Browse to locate the folder.")],
             [sg.Text("Path to directory of files to check: "), sg.InputText(key='input_files_location'), sg.FolderBrowse(key='input_files_location')],
             [sg.Checkbox("Should file checking be recursive through nested sub-directories?", key='recursive')],
             [sg.Checkbox("Only show files that are not found on the server?", key='only_missing')],
-            [sg.Text("Note: If you requested only the missing files, do not select any output other than 'window'.")],
-            [sg.Text("Output Type: "), sg.Combo(values=['json', 'excel', 'window'], default_value='window', key='output_type')],
-            [sg.Submit(), sg.Cancel(), sg.ProgressBar(100, orientation='h', size=(50, 15), bar_color=('green', 'white'), key='progressbar')]
+            [sg.Text("Saved Output Type: "), sg.Combo(values=['json', 'excel', 'None'], default_value='None', key='output_type')],
+            [sg.Submit(), sg.Cancel(), sg.ProgressBar(100, orientation='h', size=(50, 15), bar_color=('green', 'white'), key='progressbar')],
+            [sg.Multiline(size=(110, 20), font=('Courier', 10), key='multiline', write_only=True, autoscroll=True)]
         ]
         return layout
 
-    def make_window(self, window_name: str, window_layout: list, figure=None):
+    def make_window(self, window_name: str, window_layout: list):
         """
 
         :param window_name:
         :param window_layout:
-        :param figure: matplotlib figure to be included in layout, requires sg.Canvas(key='-CANVAS-') element in layout
         :return:
         """
 
-        sg.theme(self.gui_theme)
+        sg.theme('Dark2')
 
         # launch gui
-        window = sg.Window(window_name, layout=window_layout, finalize=True, enable_close_attempted_event=True)
+        window = sg.Window(window_name, layout=window_layout, resizable=True, finalize=True)
         window.bring_to_front()
-        event, values = window.read()
-        values["Button Event"] = event
-        window.close()
-        return defaultdict(None, values)
+        return window
 
 
 
@@ -186,45 +184,18 @@ def excel_export(r, time):
             cell.alignment = Alignment(horizontal="left")
     return results_filepath
 
-def formatted_print(r, oms):
-    out = []
-    if oms:
-        count = 0
-        for key, vals in r.items():
-            if vals != "None":
-                continue
-            else:
-                count += 1
-                key = key.replace("/", "\\")
-                out.append(f"Locations for {key}")
-                out.append("")
-                out.append("   | None")
-                out.append("")
-        if count == 0:
-            out.append("All files were located on the server")
-    else:
-        for key, vals in r.items():
-            key = key.replace("/", "\\")
-            out.append(f"Locations for {key}")
-            out.append("")
-            if vals != "None":
-                for val in vals:
-                    val = val.replace("/", "\\")
-                    out.append(f"   | R:\\{val}")
-            else:
-                out.append("   | None")
-            out.append("")
-    return out
-
 def main():
     # Disable SSL warnings
     requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
     gui_handler = GuiHandler("1.0.0")
     layout = gui_handler._main_form_layout()
-    window = sg.Window("Test Window", layout=layout, finalize=True)
+    window = gui_handler.make_window("Batch Archived-or-Not", layout)
     progress_bar = window['progressbar']
-    window.bring_to_front()
+
+    # multiline element
+    sg.cprint_set_output_destination(window, 'multiline')
+    mline = window['multiline']
 
     while True:
         event, values = window.read()
@@ -263,6 +234,7 @@ def main():
                     pb_counter += 1
                     progress_bar.update_bar(pb_counter, pb_max)
                     filepath = os.path.join(root, file)
+                    path_relative_to_files_location = os.path.relpath(filepath, files_location)
                     request_url = URL_TEMPLATE.format(ADDRESS)
                     with open(filepath, 'rb') as f:
                         files = {'file': f}
@@ -270,18 +242,29 @@ def main():
                         try:
                             response = requests.post(request_url, files=files, verify=False)
                             file_locations = []
+                            file_str = f"\nLocations for {path_relative_to_files_location}\n\n"
                             if response.status_code == 404:
+                                mline.update(file_str, text_color_for_value='green', append=True)
+                                mline.update("\tNone\n", text_color_for_value='red', append=True)
                                 file_locations = "None"
                             else:
                                 if only_missing_files:
                                     continue
                                 file_locations = json.loads(response.text)
+                                mline.update(file_str, text_color_for_value='green', append=True)
+                                for i, location in enumerate(file_locations):
+                                    # if the output is being piped to console, alternate the color of the output
+                                    color = 'black'
+                                    if (i % 2 != 0):
+                                        color = 'brown'
+                                    mline.update(f"\t{location}\n", text_color_for_value=color, append=True)
                         except Exception as e:
                             if response and response.status_code and response.status_code in [404, 400, 500, 405]:
                                 sg.popup_error(f"Request Error:\n{response.text}")
                                 break
                     results[filepath] = file_locations
                 if root == files_location and not recursive:
+                    mline.update("\nSearch complete.", text_color_for_value='red', append=True)
                     break
 
             # export output based on user options
@@ -298,17 +281,6 @@ def main():
                 path_name = excel_export(results, timestamp)
                 window.close()
                 sg.popup_ok(path_name, title="Results excel file saved to:")
-
-            # output to window (default)
-            window.close()
-            out = formatted_print(results, only_missing_files)
-            layout = [[sg.Multiline(default_text="\n".join(out), size=(130, 30), font=('Courier', 10), key="line",
-                                    autoscroll=True)]]
-            window = sg.Window("File Locations", layout, finalize=True)
-            while True:
-                event, values = window.read()
-                if event == sg.WIN_CLOSED:
-                    break
 
     window.close()
 
