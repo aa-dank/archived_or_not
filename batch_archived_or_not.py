@@ -3,14 +3,12 @@ import os
 import random
 import re
 import requests
-import sys
 import PySimpleGUI as sg
 import pandas as pd
+from openpyxl.styles.alignment import Alignment
 from collections import defaultdict
 from datetime import datetime
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
-
-
 
 VERSION = "1.0.2"
 URL_TEMPLATE =r"https://{}/api/archived_or_not?user=constdoc@ucsc.edu&password=1156high"
@@ -67,6 +65,7 @@ class GuiHandler:
         values["Button Event"] = event
         window.close()
         return defaultdict(None, values)
+
 
 
 class TestGuiHandler:
@@ -170,34 +169,56 @@ def create_paths_from_file_locations(row, file_server_location):
     path_parts_list = [file_server_location] + path_parts_list
     return os.path.join(*path_parts_list)
 
-def add_terminal_text_color(text, color):
-    """
-    Add terminal text color to the text.
-    :param text: The text to add color to.
-    :param color: The color to add to the text.
-    """
-    color_map = {
-        'green': '1;32;40m',
-        'cyan': '0;36m',
-        'yellow': '1;33;40m',
-        'purple': '0;35m'
-    }
+def json_export(r, time):
+    results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{time}.json')
+    with open(results_filepath, 'w') as f:
+        json.dump(r, f, indent=4)
+    return results_filepath
 
-    if color not in color_map:
-        raise ValueError(f"Invalid color: {color}")
-    
-    if not sys.stdin.isatty():
-        return text
+def excel_export(r, time):
+    results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{time}.xlsx')
+    df = pd.DataFrame.from_dict(r, orient='index')
+    with pd.ExcelWriter(results_filepath, engine="openpyxl") as w:
+        sheet_name = "sheet1"
+        df.to_excel(w, sheet_name=sheet_name, header=False)
+        sheet = w.sheets[sheet_name]
+        for cell in sheet["A"]:
+            cell.alignment = Alignment(horizontal="left")
+    return results_filepath
 
-    return f"\033[{color_map[color]}{text}\033[0m"
-
+def formatted_print(r, oms):
+    out = []
+    if oms:
+        count = 0
+        for key, vals in r.items():
+            if vals != "None":
+                continue
+            else:
+                count += 1
+                key = key.replace("/", "\\")
+                out.append(f"Locations for {key}")
+                out.append("")
+                out.append("   | None")
+                out.append("")
+        if count == 0:
+            out.append("All files were located on the server")
+    else:
+        for key, vals in r.items():
+            key = key.replace("/", "\\")
+            out.append(f"Locations for {key}")
+            out.append("")
+            if vals != "None":
+                for val in vals:
+                    val = val.replace("/", "\\")
+                    out.append(f"   | R:\\{val}")
+            else:
+                out.append("   | None")
+            out.append("")
+    return out
 
 def main():
     # Disable SSL warnings
     requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-
-    # Enable ANSI escape sequences for color output
-    os.system('')
 
     gui_handler = GuiHandler("1.0.0")
     layout = gui_handler._main_form_layout()
@@ -224,6 +245,7 @@ def main():
             pb_max = 100
             progress_bar.update_bar(pb_counter, pb_max)
             files_location = values['input_files_location']
+
             # proceed ONLY if path is provided
             if files_location == "":
                 sg.popup_error("Must input filepath")
@@ -263,55 +285,23 @@ def main():
                     break
 
             # export output based on user options
+
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             # export json
-            if values['output_type'] == 'json' and not only_missing_files:
-                results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{timestamp}.json')
-                with open(results_filepath, 'w') as f:
-                    json.dump(results, f, indent=4)
+            if values['output_type'] == 'json':
+                path_name = json_export(results, timestamp)
                 window.close()
-                sg.popup_ok(results_filepath, title="Results excel file saved to:")
+                sg.popup_ok(path_name, title="Results excel file saved to:")
 
             # export excel
-            elif values['output_type'] == 'excel' and not only_missing_files:
-                results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{timestamp}.xlsx')
-                df = pd.DataFrame(data=results)
-                df.to_excel(results_filepath)
+            elif values['output_type'] == 'excel':
+                path_name = excel_export(results, timestamp)
                 window.close()
-                sg.popup_ok(results_filepath, title="Results excel file saved to:")
-
-            window.close()
-
-            # format the output
-            out = []
-            if only_missing_files:
-                count = 0
-                for key, vals in results.items():
-                    if vals != "None":
-                        continue
-                    else:
-                        count += 1
-                        key = key.replace("/", "\\")
-                        out.append(f"Locations for {key}")
-                        out.append("  \\")
-                        out.append("   | None")
-                        out.append("  /")
-                if count == 0:
-                    out.append("All files were located on the server")
-            else:
-                for key, vals in results.items():
-                    key = key.replace("/", "\\")
-                    out.append(f"Locations for {key}")
-                    out.append("  \\")
-                    if vals != "None":
-                        for val in vals:
-                            val = val.replace("/", "\\")
-                            out.append(f"   | R:\\{val}")
-                    else:
-                        out.append("   | None")
-                    out.append("  /")
+                sg.popup_ok(path_name, title="Results excel file saved to:")
 
             # output to window (default)
+            window.close()
+            out = formatted_print(results, only_missing_files)
             layout = [[sg.Multiline(default_text="\n".join(out), size=(130, 30), font=('Courier', 10), key="line",
                                     autoscroll=True)]]
             window = sg.Window("File Locations", layout, finalize=True)
