@@ -40,11 +40,14 @@ class GuiHandler:
         layout = [
             [sg.Text("Version: " + self.app_version)],
             [sg.Text("Input a valid file path in box below. Manually input the path or select Browse to locate the folder.")],
-            [sg.Text("Path to directory of files to check: "), sg.InputText(key='input_files_location'), sg.FolderBrowse(key='input_files_location')],
+            [sg.Text("Path to directory of files to check: "), sg.InputText(size=(80, 5), key='input_files_location'),
+             sg.FolderBrowse(key='input_files_location')],
             [sg.Checkbox("Should file checking be recursive through nested sub-directories?", key='recursive')],
             [sg.Checkbox("Only show files that are not found on the server?", key='only_missing')],
-            [sg.Text("Saved Output Type: "), sg.Combo(values=['json', 'excel', 'None'], default_value='None', key='output_type')],
-            [sg.Submit(), sg.Cancel(), sg.ProgressBar(100, orientation='h', size=(50, 15), bar_color=('green', 'white'), key='progressbar')],
+            [sg.Text("Saved Output Type: "), sg.Combo(values=['json', 'excel', 'None'], default_value='None',
+                                                      key='output_type')],
+            [sg.Submit(), sg.Cancel(), sg.ProgressBar(100, orientation='h', size=(70, 15), bar_color=('green', 'white'),
+                                                      key='progressbar')],
             [sg.Multiline(size=(110, 20), font=('Courier', 10), key='multiline', write_only=True, autoscroll=True)]
         ]
         return layout
@@ -194,7 +197,6 @@ def main():
     progress_bar = window['progressbar']
 
     # multiline element
-    sg.cprint_set_output_destination(window, 'multiline')
     mline = window['multiline']
 
     while True:
