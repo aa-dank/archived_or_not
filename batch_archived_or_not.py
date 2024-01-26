@@ -222,8 +222,8 @@ def main():
             mline.update("")
 
             # proceed ONLY if path is provided
-            if files_location == "":
-                sg.popup_error("Must input filepath")
+            if not os.path.isdir(files_location):
+                sg.popup_error("Must input valid filepath")
 
             results = {}
             # find total number of files (for the progress bar)
@@ -258,7 +258,7 @@ def main():
                                 for i, location in enumerate(file_locations):
                                     # if the output is being piped to console, alternate the color of the output
                                     color = 'black'
-                                    if (i % 2 != 0):
+                                    if (i % 2) != 0:
                                         color = 'brown'
                                     location = "R:\\" + location.replace("/", "\\")
                                     mline.update(f"\t{location}\n", text_color_for_value=color, append=True)
@@ -270,7 +270,7 @@ def main():
                 if root == files_location and not recursive:
                     break
 
-            if files_location != "":
+            if os.path.isdir(files_location):
                 mline.update("\nSearch complete.", text_color_for_value='red', append=True)
 
             # export output based on user options
