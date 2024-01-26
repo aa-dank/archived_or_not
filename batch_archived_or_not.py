@@ -206,23 +206,24 @@ def main():
         # close window event
         if event == sg.WIN_CLOSED or event == 'Cancel':
             break
-        # recursive button event
-        if values['recursive']:
-            recursive = True
-        # only_missing_files button event
-        if values['only_missing']:
-            only_missing_files = True
         # submit button event, hosts main program
         if event == 'Submit':
+            # recursive button event
+            if values['recursive']:
+                recursive = True
+            # only_missing_files button event
+            if values['only_missing']:
+                only_missing_files = True
             pb_counter = 0
             pb_max = 100
             progress_bar.update_bar(pb_counter, pb_max)
             files_location = values['input_files_location']
+            # reset mline in case user is using the same window again
+            mline.update("")
 
             # proceed ONLY if path is provided
             if files_location == "":
                 sg.popup_error("Must input filepath")
-                break
 
             results = {}
             # find total number of files (for the progress bar)
@@ -259,6 +260,7 @@ def main():
                                     color = 'black'
                                     if (i % 2 != 0):
                                         color = 'brown'
+                                    location = "R:\\" + location.replace("/", "\\")
                                     mline.update(f"\t{location}\n", text_color_for_value=color, append=True)
                         except Exception as e:
                             if response and response.status_code and response.status_code in [404, 400, 500, 405]:
@@ -266,8 +268,10 @@ def main():
                                 break
                     results[filepath] = file_locations
                 if root == files_location and not recursive:
-                    mline.update("\nSearch complete.", text_color_for_value='red', append=True)
                     break
+
+            if files_location != "":
+                mline.update("\nSearch complete.", text_color_for_value='red', append=True)
 
             # export output based on user options
 
