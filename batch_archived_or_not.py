@@ -10,7 +10,7 @@ from collections import defaultdict
 from datetime import datetime
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 URL_TEMPLATE =r"https://{}/api/archived_or_not?user=constdoc@ucsc.edu&password=1156high"
 #ADDRESS = r"localhost:5000" # for testing
 ADDRESS = r"ppdo-dev-app-1.ucsc.edu"
@@ -218,9 +218,9 @@ def main():
             # only_missing_files button event
             if values['only_missing']:
                 only_missing_files = True
-            pb_counter = 0
-            pb_max = 100
-            progress_bar.update_bar(pb_counter, pb_max)
+            progress_bar_counter = 0
+            progress_bar_max = 100
+            progress_bar.update_bar(progress_bar_counter, progress_bar_max)
             files_location = values['input_files_location']
             # reset multiline in case user is using the same window again
             multiline_output.update("")
@@ -232,19 +232,19 @@ def main():
             results = {}
             # find total number of files (for the progress bar)
             if recursive:
-                pb_max = sum(1 for _, _, fi in os.walk(files_location) for f in fi)
+                progress_bar_max = sum(1 for _, _, fi in os.walk(files_location) for f in fi)
 
             for root, dirs, files in os.walk(files_location):
                 if not recursive:
-                    pb_max = len(files)
+                    progress_bar_max = len(files)
                 
                 # iterate through files in directory
                 for file in files:
                     # skip hidden and temp files
                     if file == "Thumbs.db" or file.startswith("~$"):
                         continue
-                    pb_counter += 1
-                    progress_bar.update_bar(pb_counter, pb_max)
+                    progress_bar_counter += 1
+                    progress_bar.update_bar(progress_bar_counter, progress_bar_max)
                     filepath = os.path.join(root, file)
                     path_relative_to_files_location = os.path.relpath(filepath, files_location)
                     request_url = URL_TEMPLATE.format(ADDRESS)
@@ -316,8 +316,3 @@ if __name__ == '__main__':
     #TestGuiHandler.test_main_form()
     main()
 
-
-# TODO:
-#   - Reformat excel - DONE
-#   - Replicate 'None' output behavior for all output types - DONE
-#   - choose and check output path permissions. default to cwd - WORKED ON
