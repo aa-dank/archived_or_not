@@ -34,8 +34,11 @@ class GuiHandler:
         layout = [
             [sg.Text("Version: " + self.app_version)],
             [sg.Text("Input a valid file path in box below. Copy and paste it from Windows File Explorer or use 'Browse' to locate a folder.")],
-            [sg.Text("Path to directory of files to check: "), sg.InputText(size=(80, 5), key='input_files_location'),
+            [sg.Text("Path to directory of files to check: "), sg.InputText(size=(85, 5), key='input_files_location'),
              sg.FolderBrowse(key='input_files_location')],
+            [sg.Text("Optional: Input an output path to save excel/json to or use 'Browse' to locate a folder.")],
+            [sg.Text("Path to directory to save output in:"), sg.InputText(size=(85, 5), key='output_files_location'),
+             sg.FolderBrowse(key='output_files_location')],
             [sg.Checkbox("Should file checking be recursive through nested sub-directories?", key='recursive', default=True)],
             [sg.Checkbox("Only show files that are not found on the server? Useful for reducing the output from this tool (won't effect excel or json output)", key='only_missing')],
             [sg.Text("Saved Output Type: "), sg.Combo(values=['json', 'excel', 'None'], default_value='None',
@@ -164,21 +167,28 @@ def create_paths_from_file_locations(row, file_server_location):
     path_parts_list = [file_server_location] + path_parts_list
     return os.path.join(*path_parts_list)
 
-def json_export(r, time):
-    results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{time}.json')
+def json_export(r, time, output):
+    if output == "default":
+        results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{time}.json')
+    else:
+        results_filepath = os.path.join(output, f'archived_or_not_results_{time}.json')
+    results_filepath = results_filepath.replace("/", "\\")
     with open(results_filepath, 'w') as f:
         json.dump(r, f, indent=4)
     return results_filepath
 
-def excel_export(r, time):
-    results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{time}.xlsx')
-    df = pd.DataFrame.from_dict(r, orient='index')
+def excel_export(r, time, output):
+    if output == "default":
+        results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{time}.xlsx')
+    else:
+        results_filepath = os.path.join(output, f'archived_or_not_results_{time}.xlsx')
+    results_filepath = results_filepath.replace("/", "\\")
+    df = pd.DataFrame(columns=["Source Path", "Found Locations"])
+    for key, vals in r.items():
+        for val in vals:
+            df.loc[len(df.index)] = [key, val]
     with pd.ExcelWriter(results_filepath, engine="openpyxl") as w:
-        sheet_name = "sheet1"
-        df.to_excel(w, sheet_name=sheet_name, header=False)
-        sheet = w.sheets[sheet_name]
-        for cell in sheet["A"]:
-            cell.alignment = Alignment(horizontal="left")
+        df.to_excel(w, index=False)
     return results_filepath
 
 def main():
@@ -212,7 +222,7 @@ def main():
             pb_max = 100
             progress_bar.update_bar(pb_counter, pb_max)
             files_location = values['input_files_location']
-            # reset mline in case user is using the same window again
+            # reset multiline in case user is using the same window again
             multiline_output.update("")
 
             # proceed ONLY if path is provided
@@ -230,6 +240,9 @@ def main():
                 
                 # iterate through files in directory
                 for file in files:
+                    # skip hidden and temp files
+                    if file == "Thumbs.db" or file.startswith("~$"):
+                        continue
                     pb_counter += 1
                     progress_bar.update_bar(pb_counter, pb_max)
                     filepath = os.path.join(root, file)
@@ -271,24 +284,33 @@ def main():
                     break
 
             if os.path.isdir(files_location):
-                multiline_output.update("\nSearch complete.", text_color_for_value='red', append=True)
+                multiline_output.update("\nSearch complete.\n", text_color_for_value='red', append=True)
 
             # export output based on user options
-
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            # export json
-            if values['output_type'] == 'json':
-                path_name = json_export(results, timestamp)
-                window.close()
-                sg.popup_ok(path_name, title="Results excel file saved to:")
+            output_location = values['output_files_location']
 
-            # export excel
-            elif values['output_type'] == 'excel':
-                path_name = excel_export(results, timestamp)
-                window.close()
-                sg.popup_ok(path_name, title="Results excel file saved to:")
+            try:
+                # export json
+                if values['output_type'] == 'json':
+                    if os.path.isdir(output_location):
+                        path_name = json_export(results, timestamp, output_location)
+                    else:
+                        path_name = json_export(results, timestamp, "default")
+                    multiline_output.update(f"Results json file saved to:\n{path_name}", text_color_for_value='red', append=True)
 
-    window.close()
+                # export excel
+                elif values['output_type'] == 'excel':
+                    if os.path.isdir(output_location):
+                        path_name = excel_export(results, timestamp, output_location)
+                    else:
+                        path_name = excel_export(results, timestamp, "default")
+                    multiline_output.update(f"Results excel file saved to:\n{path_name}", text_color_for_value='red', append=True)
+            except Exception as e:
+                # not sure what to put here
+                multiline_output.update(f"\n--error msg--", text_color_for_value='red',
+                                        append=True)
+
 
 if __name__ == '__main__':
     #TestGuiHandler.test_main_form()
@@ -296,6 +318,6 @@ if __name__ == '__main__':
 
 
 # TODO:
-#   - Reformat excel
-#   - Replicate 'None' output behavior for all output types
-#   - choose and check output path permissions. default to cwd
+#   - Reformat excel - DONE
+#   - Replicate 'None' output behavior for all output types - DONE
+#   - choose and check output path permissions. default to cwd - WORKED ON
