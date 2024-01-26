@@ -10,9 +10,9 @@ from collections import defaultdict
 from datetime import datetime
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
-VERSION = "1.0.2"
+VERSION = "1.1.0"
 URL_TEMPLATE =r"https://{}/api/archived_or_not?user=constdoc@ucsc.edu&password=1156high"
-#ADDRESS = r"localhost:5000" #for testing
+#ADDRESS = r"localhost:5000" # for testing
 ADDRESS = r"ppdo-dev-app-1.ucsc.edu"
 
 class GuiHandler:
@@ -21,13 +21,7 @@ class GuiHandler:
     """
 
     def __init__(self, app_version: str):
-        self.gui_theme = random.choice(["DarkTeal6", "Green", "LightBrown11", "LightPurple", "SandyBeach", "DarkGreen4",
-                                        "BluePurple", "Reddit", "DarkBrown5", "DarkBlue8", "LightGreen6", "LightBlue7",
-                                        "DarkGreen2", "Kayak", "LightBrown3", "LightBrown1", "LightTeal", "Tan",
-                                        "TealMono", "LightBrown4", "LightBrown3", "LightBrown2", "DarkPurple4",
-                                        "DarkPurple", "DarkGreen5", "Dark Brown3", "DarkAmber", "DarkGrey6",
-                                        "DarkGrey2", "DarkTeal1", "LightGrey6", "DarkBrown6"])
-        self.window_close_button_event = "-WINDOW CLOSE ATTEMPTED-"
+        self.gui_theme = 'Dark2'
         self.app_version = app_version
 
     def _main_form_layout(self):
@@ -39,11 +33,11 @@ class GuiHandler:
 
         layout = [
             [sg.Text("Version: " + self.app_version)],
-            [sg.Text("Input a valid file path in box below. Manually input the path or select Browse to locate the folder.")],
+            [sg.Text("Input a valid file path in box below. Copy and paste it from Windows File Explorer or use 'Browse' to locate a folder.")],
             [sg.Text("Path to directory of files to check: "), sg.InputText(size=(80, 5), key='input_files_location'),
              sg.FolderBrowse(key='input_files_location')],
-            [sg.Checkbox("Should file checking be recursive through nested sub-directories?", key='recursive')],
-            [sg.Checkbox("Only show files that are not found on the server?", key='only_missing')],
+            [sg.Checkbox("Should file checking be recursive through nested sub-directories?", key='recursive', default=True)],
+            [sg.Checkbox("Only show files that are not found on the server? Useful for reducing the output from this tool (won't effect excel or json output)", key='only_missing')],
             [sg.Text("Saved Output Type: "), sg.Combo(values=['json', 'excel', 'None'], default_value='None',
                                                       key='output_type')],
             [sg.Submit(), sg.Cancel(), sg.ProgressBar(100, orientation='h', size=(70, 15), bar_color=('green', 'white'),
@@ -60,7 +54,7 @@ class GuiHandler:
         :return:
         """
 
-        sg.theme('Dark2')
+        sg.theme(self.gui_theme)
 
         # launch gui
         window = sg.Window(window_name, layout=window_layout, resizable=True, finalize=True)
@@ -191,13 +185,13 @@ def main():
     # Disable SSL warnings
     requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-    gui_handler = GuiHandler("1.0.0")
+    gui_handler = GuiHandler(app_version=VERSION)
     layout = gui_handler._main_form_layout()
     window = gui_handler.make_window("Batch Archived-or-Not", layout)
     progress_bar = window['progressbar']
 
     # multiline element
-    mline = window['multiline']
+    multiline_output = window['multiline']
 
     while True:
         event, values = window.read()
@@ -219,7 +213,7 @@ def main():
             progress_bar.update_bar(pb_counter, pb_max)
             files_location = values['input_files_location']
             # reset mline in case user is using the same window again
-            mline.update("")
+            multiline_output.update("")
 
             # proceed ONLY if path is provided
             if not os.path.isdir(files_location):
@@ -233,12 +227,16 @@ def main():
             for root, dirs, files in os.walk(files_location):
                 if not recursive:
                     pb_max = len(files)
+                
+                # iterate through files in directory
                 for file in files:
                     pb_counter += 1
                     progress_bar.update_bar(pb_counter, pb_max)
                     filepath = os.path.join(root, file)
                     path_relative_to_files_location = os.path.relpath(filepath, files_location)
                     request_url = URL_TEMPLATE.format(ADDRESS)
+                    
+                    # open file and send to server endpoint
                     with open(filepath, 'rb') as f:
                         files = {'file': f}
                         response = None
@@ -246,22 +244,24 @@ def main():
                             response = requests.post(request_url, files=files, verify=False)
                             file_locations = []
                             file_str = f"\nLocations for {path_relative_to_files_location}\n\n"
+                            
+                            # if file is not found on server, display "None" in red
                             if response.status_code == 404:
-                                mline.update(file_str, text_color_for_value='green', append=True)
-                                mline.update("\tNone\n", text_color_for_value='red', append=True)
+                                multiline_output.update(file_str, text_color_for_value='green', append=True)
+                                multiline_output.update("\tNone\n", text_color_for_value='red', append=True)
                                 file_locations = "None"
                             else:
                                 if only_missing_files:
                                     continue
                                 file_locations = json.loads(response.text)
-                                mline.update(file_str, text_color_for_value='green', append=True)
+                                multiline_output.update(file_str, text_color_for_value='green', append=True)
                                 for i, location in enumerate(file_locations):
-                                    # if the output is being piped to console, alternate the color of the output
+                                    # if the output is being piped to gui, alternate the color of the output
                                     color = 'black'
                                     if (i % 2) != 0:
-                                        color = 'brown'
+                                        color = 'grey'
                                     location = "R:\\" + location.replace("/", "\\")
-                                    mline.update(f"\t{location}\n", text_color_for_value=color, append=True)
+                                    multiline_output.update(f"\t{location}\n", text_color_for_value=color, append=True)
                         except Exception as e:
                             if response and response.status_code and response.status_code in [404, 400, 500, 405]:
                                 sg.popup_error(f"Request Error:\n{response.text}")
@@ -271,7 +271,7 @@ def main():
                     break
 
             if os.path.isdir(files_location):
-                mline.update("\nSearch complete.", text_color_for_value='red', append=True)
+                multiline_output.update("\nSearch complete.", text_color_for_value='red', append=True)
 
             # export output based on user options
 
@@ -295,6 +295,7 @@ if __name__ == '__main__':
     main()
 
 
-# Features to add:
-#   - Add ability choose between json, excel, or None output
-#   - GUI?
+# TODO:
+#   - Reformat excel
+#   - Replicate 'None' output behavior for all output types
+#   - choose and check output path permissions. default to cwd
