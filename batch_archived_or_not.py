@@ -185,11 +185,24 @@ def excel_export(r, time, output):
     results_filepath = results_filepath.replace("/", "\\")
     df = pd.DataFrame(columns=["Source Path", "Found Locations"])
     for key, vals in r.items():
+        if vals == "None":
+            df.loc[len(df.index)] = [key, vals]
+            continue
         for val in vals:
             df.loc[len(df.index)] = [key, val]
-    with pd.ExcelWriter(results_filepath, engine="openpyxl") as w:
-        df.to_excel(w, index=False)
+    with pd.ExcelWriter(results_filepath, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False)
     return results_filepath
+
+def find_file_count(recurse, location):
+    file_count = 0
+    for _, _, files in os.walk(location):
+        for file in files:
+            if file != "Thumbs.db" and not file.startswith("~$"):
+                file_count += 1
+        if recurse:
+            break
+    return file_count
 
 def main():
     # Disable SSL warnings
@@ -231,13 +244,9 @@ def main():
 
             results = {}
             # find total number of files (for the progress bar)
-            if recursive:
-                progress_bar_max = sum(1 for _, _, fi in os.walk(files_location) for f in fi)
+            progress_bar_max = find_file_count(recursive, files_location)
 
             for root, dirs, files in os.walk(files_location):
-                if not recursive:
-                    progress_bar_max = len(files)
-                
                 # iterate through files in directory
                 for file in files:
                     # skip hidden and temp files
@@ -248,6 +257,7 @@ def main():
                     filepath = os.path.join(root, file)
                     path_relative_to_files_location = os.path.relpath(filepath, files_location)
                     request_url = URL_TEMPLATE.format(ADDRESS)
+                    file_locations = []
                     
                     # open file and send to server endpoint
                     with open(filepath, 'rb') as f:
@@ -257,16 +267,16 @@ def main():
                             response = requests.post(request_url, files=files, verify=False)
                             file_locations = []
                             file_str = f"\nLocations for {path_relative_to_files_location}\n\n"
-                            
                             # if file is not found on server, display "None" in red
                             if response.status_code == 404:
                                 multiline_output.update(file_str, text_color_for_value='green', append=True)
                                 multiline_output.update("\tNone\n", text_color_for_value='red', append=True)
                                 file_locations = "None"
                             else:
-                                if only_missing_files:
-                                    continue
                                 file_locations = json.loads(response.text)
+                                if only_missing_files:
+                                    results[filepath] = file_locations
+                                    continue
                                 multiline_output.update(file_str, text_color_for_value='green', append=True)
                                 for i, location in enumerate(file_locations):
                                     # if the output is being piped to gui, alternate the color of the output
@@ -307,8 +317,7 @@ def main():
                         path_name = excel_export(results, timestamp, "default")
                     multiline_output.update(f"Results excel file saved to:\n{path_name}", text_color_for_value='red', append=True)
             except Exception as e:
-                # not sure what to put here
-                multiline_output.update(f"\n--error msg--", text_color_for_value='red',
+                multiline_output.update(f"\nError: Can't export file to requested location.", text_color_for_value='red',
                                         append=True)
 
 
