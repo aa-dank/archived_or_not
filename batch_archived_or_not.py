@@ -199,7 +199,7 @@ def find_file_count(recurse, location):
         for file in files:
             if file != "Thumbs.db" and not file.startswith("~$"):
                 file_count += 1
-        if recurse:
+        if not recurse:
             break
     return file_count
 
