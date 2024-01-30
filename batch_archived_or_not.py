@@ -10,7 +10,7 @@ from collections import defaultdict
 from datetime import datetime
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
-VERSION = "1.1.1"
+VERSION = "1.1.2"
 URL_TEMPLATE =r"https://{}/api/archived_or_not?user=constdoc@ucsc.edu&password=1156high"
 #ADDRESS = r"localhost:5000" # for testing
 ADDRESS = r"ppdo-dev-app-1.ucsc.edu"
@@ -63,7 +63,6 @@ class GuiHandler:
         window = sg.Window(window_name, layout=window_layout, resizable=True, finalize=True)
         window.bring_to_front()
         return window
-
 
 
 class TestGuiHandler:
