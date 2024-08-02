@@ -4,6 +4,7 @@ import json
 import pandas as pd
 import requests
 from datetime import datetime
+from PySide6 import QtGui
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (QApplication, QTextEdit, QWidget, QVBoxLayout, QPushButton, QHBoxLayout, QLabel,
                                QFileDialog, QCheckBox, QLineEdit, QProgressBar, QComboBox)
@@ -12,10 +13,11 @@ from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
 
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 URL_TEMPLATE = r"https://{}/api/archived_or_not?user=constdoc@ucsc.edu&password=1156high"
 # ADDRESS = r"localhost:5000" # for testing
 ADDRESS = r"ppdo-dev-app-1.ucsc.edu"
+basedir = os.path.dirname(__file__)
 
 
 class HeavyLifter(QThread):
@@ -289,6 +291,7 @@ def main():
     requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
     app = QApplication(sys.argv)
+    app.setWindowIcon(QtGui.QIcon(os.path.join(basedir, 'app_icon_.ico')))
     gui = GuiHandler(app_version=VERSION)
     gui.show()
     sys.exit(app.exec())
