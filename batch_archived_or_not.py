@@ -4,6 +4,7 @@ import json
 import pandas as pd
 import requests
 from datetime import datetime
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (QApplication, QTextEdit, QWidget, QVBoxLayout, QPushButton, QHBoxLayout, QLabel,
                                QFileDialog, QCheckBox, QLineEdit, QProgressBar, QComboBox)
 from PySide6.QtCore import Qt
@@ -15,6 +16,120 @@ VERSION = "1.0.0"
 URL_TEMPLATE = r"https://{}/api/archived_or_not?user=constdoc@ucsc.edu&password=1156high"
 # ADDRESS = r"localhost:5000" # for testing
 ADDRESS = r"ppdo-dev-app-1.ucsc.edu"
+
+
+class HeavyLifter(QThread):
+    progress = Signal(int)
+    finished = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, path, recursive, only_missing_files, output_type, custom_path, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.path = path
+        self.recursive = recursive
+        self.only_missing_files = only_missing_files
+        self.output_type = output_type
+        self.custom_path = custom_path
+
+    def run(self):
+        try:
+            self.process_files()
+        except Exception as e:
+            self.error.emit(f"Error occurred: {str(e)}")
+
+    def process_files(self):
+        file_ignore = [".DS_Store", "Thumbs.db"]
+        results = {}
+        progress_bar_counter = 0
+        progress_bar_max = self.find_file_count()
+
+        if progress_bar_max == 0:
+            self.finished.emit("No files found.")
+            return
+
+        for root, dirs, files in os.walk(self.path):
+            # iterate through files in directory
+            for file in files:
+                # skip hidden and temp files
+                if file in file_ignore or file.startswith("~$"):
+                    continue
+
+                # update progress bar
+                progress_bar_counter += 1
+                progress = int((progress_bar_counter / progress_bar_max) * 100)
+                self.progress.emit(progress)
+
+                filepath = os.path.join(root, file)
+                path_relative_to_files_location = os.path.relpath(filepath, self.path)
+                request_url = URL_TEMPLATE.format(ADDRESS)
+                file_locations = []
+                file_save = []
+
+                # open file and send to server endpoint
+                try:
+                    with open(filepath, 'rb') as f:
+                        files = {'file': f}
+                        response = requests.post(request_url, files=files, verify=False)
+
+                        file_str = f"\n<b>Locations for {path_relative_to_files_location}</b>"
+                        if response.status_code == 404:
+                            file_locations.append(f"<p>{file_str}<pre>    None</pre></p>")
+                            file_save = "None"
+                        else:
+                            file_save = json.loads(response.text)
+                            if self.only_missing_files:
+                                results[filepath] = file_save
+                                continue
+                            file_save = ["R:\\{}".format(loc.replace('/', '\\')) for loc in file_save]
+                            file_locations = ["<pre>    {}</pre>".format(loc) for loc in file_save]
+                            file_locations.insert(0, file_str)
+
+                except Exception as e:
+                    if 'response' in locals() and response.status_code in [404, 400, 500, 405]:
+                        self.error.emit(f"Request Error:\n{response.text}")
+                        return
+
+                results[filepath] = file_save
+                self.finished.emit("\n".join(file_locations))
+
+            if root == self.path and not self.recursive:
+                break
+
+        self.save_results(results)
+        self.finished.emit("\n<b>Search complete.</b>")
+
+    def find_file_count(self):
+        file_count = 0
+        file_ignore = [".DS_Store", "Thumbs.db"]
+        for _, _, files in os.walk(self.path):
+            for file in files:
+                if file not in file_ignore and not file.startswith("~$"):
+                    file_count += 1
+            if not self.recursive:
+                break
+        return file_count
+
+    def save_results(self, results):
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        output_location = self.custom_path
+
+        try:
+            if self.output_type in ['json', 'json and excel']:
+                if os.path.isdir(output_location):
+                    path_name = json_export(results, timestamp, output_location)
+                else:
+                    path_name = json_export(results, timestamp, "default")
+                self.finished.emit(f"\n<b>Results JSON file saved to:</b>\n{path_name}")
+
+            if self.output_type in ['excel', 'json and excel']:
+                if os.path.isdir(output_location):
+                    path_name = excel_export(results, timestamp, output_location)
+                else:
+                    path_name = excel_export(results, timestamp, "default")
+                self.finished.emit(f"\n<b>Results Excel file saved to:</b>\n{path_name}")
+
+        except Exception as e:
+            self.error.emit(f"Error: Can't export file to requested location. {str(e)}.")
 
 
 class GuiHandler(QWidget):
@@ -116,118 +231,29 @@ class GuiHandler(QWidget):
             self.custom_path_line_edit.setText(custom_directory_path)
 
     def archived_or_not_call(self):
-        # recursive checkbox
+        self.output_text_edit.clear()
+
         recursive = self.recursive_box.isChecked()
-        # only_missing_files checkbox
         only_missing_files = self.missing_box.isChecked()
         output_type = self.save_combo_box.currentText()
-
+        custom_path = self.custom_path_line_edit.text().strip()
         files_location = self.path_line_edit.text().strip()
-        results = {}
 
-        self.output_text_edit.clear()
-        file_ignore = [".DS_Store", "Thumbs.db"]
-
-        # proceed ONLY if path is provided
         if not os.path.isdir(files_location):
             self.output_text_edit.append("Must input valid filepath")
             return
 
-        # find total number of files (for the progress bar)
-        progress_bar_counter = 0
-        progress_bar_max = find_file_count(recursive, files_location)
+        self.hl = HeavyLifter(files_location, recursive, only_missing_files, output_type, custom_path)
+        self.hl.progress.connect(self.progress_bar.setValue)
+        self.hl.finished.connect(self.handle_finished)
+        self.hl.error.connect(self.output_text_edit.append)
+        self.hl.start()
 
-        if progress_bar_max == 0:
-            self.output_text_edit.append("No files found.")
-            return
-        self.output_text_edit.setTextColor(Qt.black)
-
-        for root, dirs, files in os.walk(files_location):
-            # iterate through files in directory
-            for file in files:
-                files_buffer = []
-                # skip hidden and temp files
-                if file in file_ignore or file.startswith("~$"):
-                    continue
-                # update progress bar
-                progress_bar_counter += 1
-                progress = int((progress_bar_counter / progress_bar_max) * 100)
-                self.progress_bar.setValue(progress)
-
-                filepath = os.path.join(root, file)
-                path_relative_to_files_location = os.path.relpath(filepath, files_location)
-                request_url = URL_TEMPLATE.format(ADDRESS)
-                file_locations = []
-
-                # open file and send to server endpoint
-                with open(filepath, 'rb') as f:
-                    files = {'file': f}
-                    response = None
-                    try:
-                        response = requests.post(request_url, files=files, verify=False)
-                        file_locations = []
-                        file_str = f"\n<b>Locations for {path_relative_to_files_location}</b>"
-                        # if file is not found on server, display "None"
-                        if response.status_code == 404:
-                            files_buffer.append(f"<p>{file_str}<pre>    None</pre></p>")
-                            file_locations = "None"
-                        else:
-                            file_locations = json.loads(response.text)
-                            if only_missing_files:
-                                results[filepath] = file_locations
-                                continue
-                            files_buffer.append(file_str)
-                            for i, location in enumerate(file_locations):
-                                location = "R:\\" + location.replace("/", "\\")
-                                files_buffer.append(f"<pre>    {location}</pre>")
-                    except Exception as e:
-                        if response and response.status_code and response.status_code in [404, 400, 500, 405]:
-                            self.output_text_edit.append(f"Request Error:\n{response.text}")
-                            break
-                results[filepath] = file_locations
-                self.output_text_edit.append("\n".join(files_buffer))
-            if root == files_location and not recursive:
-                break
-
-        self.output_text_edit.setTextColor(Qt.red)
-        self.output_text_edit.append("\nSearch complete.\n")
-
-        # export output based on user options
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        output_location = self.custom_path_line_edit.text().strip()
-
-        try:
-            # export json
-            if output_type == 'json' or output_type == 'json and excel':
-                if os.path.isdir(output_location):
-                    path_name = json_export(results, timestamp, output_location)
-                else:
-                    path_name = json_export(results, timestamp, "default")
-                self.output_text_edit.append(f"Results json file saved to:\n{path_name}")
-
-            # export excel
-            if output_type == 'excel' or output_type == 'json and excel':
-                if os.path.isdir(output_location):
-                    path_name = excel_export(results, timestamp, output_location)
-                else:
-                    path_name = excel_export(results, timestamp, "default")
-                self.output_text_edit.append(f"Results excel file saved to:\n{path_name}")
-        except Exception as e:
-            self.output_text_edit.append(f"\nError: Can't export file to requested location. "+str(e)+".")
-
-
-def find_file_count(recurse, location):
-    file_count = 0
-    for _, _, files in os.walk(location):
-        for file in files:
-            if file != "Thumbs.db" and not file.startswith("~$"):
-                file_count += 1
-        if not recurse:
-            break
-    return file_count
+    def handle_finished(self, message):
+        self.output_text_edit.append(message)
 
 def json_export(r, time, custom_directory_path):
-    if not custom_directory_path:
+    if custom_directory_path == "default":
         results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{time}.json')
     else:
         results_filepath = os.path.join(custom_directory_path, f'archived_or_not_results_{time}.json')
@@ -238,7 +264,7 @@ def json_export(r, time, custom_directory_path):
     return results_filepath
 
 def excel_export(r, time, custom_directory_path):
-    if not custom_directory_path:
+    if custom_directory_path == "default":
         results_filepath = os.path.join(os.getcwd(), f'archived_or_not_results_{time}.xlsx')
     else:
         results_filepath = os.path.join(custom_directory_path, f'archived_or_not_results_{time}.xlsx')
@@ -263,10 +289,8 @@ def main():
     requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
     app = QApplication(sys.argv)
-
     gui = GuiHandler(app_version=VERSION)
     gui.show()
-
     sys.exit(app.exec())
 
 
