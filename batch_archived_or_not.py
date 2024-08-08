@@ -58,7 +58,10 @@ class HeavyLifter(QThread):
 
                 # update progress bar
                 progress_bar_counter += 1
-                progress = int((progress_bar_counter / progress_bar_max) * 100)
+                progress = int((progress_bar_counter * 100) // progress_bar_max)
+                # avoid a 0%
+                if progress == 0:
+                    progress = 1
                 self.progress.emit(progress)
 
                 filepath = os.path.join(root, file)
@@ -102,14 +105,18 @@ class HeavyLifter(QThread):
 
     def find_file_count(self):
         file_count = 0
-        file_ignore = [".DS_Store", "Thumbs.db"]
+        file_ignore = {".DS_Store", "Thumbs.db"}
+
+        self.finished.emit("<b>Calculating file count...</b>")
         for _, _, files in os.walk(self.path):
             for file in files:
                 if file not in file_ignore and not file.startswith("~$"):
                     file_count += 1
             if not self.recursive:
                 break
+        self.finished.emit(f"<b>File count completed for {file_count} files.</b>")
         return file_count
+
 
     def save_results(self, results):
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -144,7 +151,6 @@ class GuiHandler(QWidget):
     def initUI(self):
         self.setWindowTitle("Batch Archived or Not")
         self.layout.addWidget(QLabel("Version: " + self.app_version))
-        self.layout.addWidget(QLabel("Note: Expect buffering on large requests."))
 
         # Input section with directory selection
         self.path_label_head = QLabel("Input a valid file path in box below. Copy and paste it from Windows File "
@@ -262,7 +268,6 @@ def json_export(r, time, custom_directory_path):
     results_filepath = results_filepath.replace("/", "\\")
     with open(results_filepath, 'w') as f:
         json.dump(r, f, indent=4)
-    # self.output_text_edit.append(f"Results saved as JSON: {results_filepath}")
     return results_filepath
 
 def excel_export(r, time, custom_directory_path):
@@ -280,7 +285,6 @@ def excel_export(r, time, custom_directory_path):
             df.loc[len(df.index)] = [key, val]
     with pd.ExcelWriter(results_filepath, engine="openpyxl") as writer:
         df.to_excel(writer, index=False)
-    # self.output_text_edit.append(f"Results saved as Excel: {file_path}")
     return results_filepath
 
 
