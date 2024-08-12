@@ -59,7 +59,7 @@ class HeavyLifter(QThread):
                 # update progress bar
                 progress_bar_counter += 1
                 progress = int((progress_bar_counter * 100) // progress_bar_max)
-                # avoid a 0%
+                # avoid 0%
                 if progress == 0:
                     progress = 1
                 self.progress.emit(progress)
@@ -68,40 +68,41 @@ class HeavyLifter(QThread):
                 path_relative_to_files_location = os.path.relpath(filepath, self.path)
                 request_url = URL_TEMPLATE.format(ADDRESS)
                 file_locations = []
-                file_save = []
 
                 # open file and send to server endpoint
                 try:
                     with open(filepath, 'rb') as f:
                         files = {'file': f}
                         response = requests.post(request_url, files=files, verify=False)
+                        filepath = filepath.replace('/', '\\')
 
-                        file_str = f"\n<b>Locations for {path_relative_to_files_location}</b>"
+                        file_str = "Locations for {}".format(path_relative_to_files_location.replace('/', '\\'))
+                        if not self.only_missing_files:
+                            self.finished.emit("<br><b>{}</b>".format(file_str))
                         if response.status_code == 404:
-                            file_locations.append(f"<p>{file_str}<pre>    None</pre></p>")
-                            file_save = "None"
-                        else:
-                            file_save = json.loads(response.text)
                             if self.only_missing_files:
-                                results[filepath] = file_save
+                                self.finished.emit("<br><b>{}</b>".format(file_str))
+                            self.finished.emit("\n<pre>    None</pre>")
+                            file_locations = "None"
+                        else:
+                            file_locations = json.loads(response.text)
+                            if self.only_missing_files:
+                                results[filepath] = file_locations
                                 continue
-                            file_save = ["R:\\{}".format(loc.replace('/', '\\')) for loc in file_save]
-                            file_locations = ["<pre>    {}</pre>".format(loc) for loc in file_save]
-                            file_locations.insert(0, file_str)
-
+                            for i in range(len(file_locations)):
+                                file_locations[i] = "R:\\{}".format(file_locations[i].replace('/', '\\'))
+                                self.finished.emit("<pre>    {}</pre>".format(file_locations[i]))
                 except Exception as e:
                     if 'response' in locals() and response.status_code in [404, 400, 500, 405]:
-                        self.error.emit(f"Request Error:\n{response.text}")
+                        self.error.emit(f"Request Error:<br>{response.text}")
                         return
-
-                results[filepath] = file_save
-                self.finished.emit("\n".join(file_locations))
+                results[filepath] = file_locations
 
             if root == self.path and not self.recursive:
                 break
 
         self.save_results(results)
-        self.finished.emit("\n<b>Search complete.</b>")
+        self.finished.emit("<br><b>Search complete.</b>")
 
     def find_file_count(self):
         file_count = 0
@@ -128,14 +129,14 @@ class HeavyLifter(QThread):
                     path_name = json_export(results, timestamp, output_location)
                 else:
                     path_name = json_export(results, timestamp, "default")
-                self.finished.emit(f"\n<b>Results JSON file saved to:</b>\n{path_name}")
+                self.finished.emit(f"<br><b>Results JSON file saved to:</b><br>{path_name}")
 
             if self.output_type in ['excel', 'json and excel']:
                 if os.path.isdir(output_location):
                     path_name = excel_export(results, timestamp, output_location)
                 else:
                     path_name = excel_export(results, timestamp, "default")
-                self.finished.emit(f"\n<b>Results Excel file saved to:</b>\n{path_name}")
+                self.finished.emit(f"<br><b>Results Excel file saved to:</b><br>{path_name}")
 
         except Exception as e:
             self.error.emit(f"Error: Can't export file to requested location. {str(e)}.")
